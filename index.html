@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sistema Completo - ASSOPESCA</title>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+
+<style>
+body{font-family:Arial;margin:0;background:#f4f7f9}
+header{background:#006400;color:#fff;padding:15px;text-align:center}
+section{background:#fff;margin:20px;padding:20px;border-radius:8px;box-shadow:0 2px 6px rgba(0,0,0,0.1)}
+input,select,button{padding:8px;margin:5px}
+button{background:#006400;color:#fff;border:none;border-radius:4px;cursor:pointer}
+button:hover{background:#004d00}
+.hidden{display:none}
+canvas{max-height:350px;margin-top:15px}
+</style>
+</head>
+
+<body>
+
+<header>
+<h2>Sistema de Gestão - ASSOPESCA</h2>
+</header>
+
+<!-- LOGIN -->
+<section id="loginSection">
+<h3>Login</h3>
+<input type="text" id="usuario" placeholder="Usuário">
+<select id="nivel">
+<option value="diretoria">Diretoria</option>
+<option value="colaborador">Colaborador</option>
+</select>
+<button onclick="login()">Entrar</button>
+</section>
+
+<!-- SISTEMA -->
+<section id="sistema" class="hidden">
+
+<h3>Cadastro de Atendimento</h3>
+<input type="text" id="colaborador" placeholder="Nome do Colaborador">
+<input type="text" id="tipo" placeholder="Tipo de Atendimento">
+<input type="date" id="data">
+<button onclick="registrarAtendimento()">Registrar</button>
+
+<h3>Filtro por Período</h3>
+<select id="tipoFiltro" onchange="filtrarPeriodo()">
+<option value="dia">Dia</option>
+<option value="mes">Mês</option>
+<option value="ano">Ano</option>
+</select>
+<input type="date" id="dataFiltro" onchange="filtrarPeriodo()">
+
+<h3>Dashboard Geral</h3>
+<canvas id="graficoGeral"></canvas>
+
+<h3>Dashboard Individual</h3>
+<select id="filtroColaborador" onchange="atualizarIndividual()"></select>
+<canvas id="graficoIndividual"></canvas>
+
+<h3>Ranking de Produtividade</h3>
+<ul id="ranking"></ul>
+
+<button onclick="exportarExcel()">Exportar Excel</button>
+<button onclick="logout()">Sair</button>
+
+</section>
+
+<script>
+
+// =============================
+// CONTROLE LOGIN
+// =============================
+
+let usuarioLogado = null;
+
+function login(){
+    usuarioLogado = {
+        nome: document.getElementById("usuario").value,
+        nivel: document.getElementById("nivel").value
+    };
+
+    localStorage.setItem("usuarioLogado", JSON.stringify(usuarioLogado));
+
+    document.getElementById("loginSection").classList.add("hidden");
+    document.getElementById("sistema").classList.remove("hidden");
+}
+
+function logout(){
+    localStorage.removeItem("usuarioLogado");
+    location.reload();
+}
+
+// =============================
+// DADOS LOCALSTORAGE
+// =============================
+
+let atendimentos = JSON.parse(localStorage.getItem("atendimentos")) || [];
+
+function salvarDados(){
+    localStorage.setItem("atendimentos", JSON.stringify(atendimentos));
+}
+
+// =============================
+// REGISTRO ATENDIMENTO
+// =============================
+
+function registrarAtendimento(){
+    const novo = {
+        colaborador: document.getElementById("colaborador").value,
+        tipo: document.getElementById("tipo").value,
+        data: document.getElementById("data").value
+    };
+
+    atendimentos.push(novo);
+    salvarDados();
+    atualizarSistema();
+}
+
+// =============================
+// FILTRO POR PERÍODO
+// =============================
+
+function filtrarPeriodo(){
+
+    const tipoFiltro = document.getElementById("tipoFiltro").value;
+    const dataFiltro = document.getElementById("dataFiltro").value;
+
+    if(!dataFiltro){
+        atualizarSistema();
+        return;
+    }
+
+    const dataBase = new Date(dataFiltro);
+
+    const filtrado = atendimentos.filter(a=>{
+        const d = new Date(a.data);
+
+        if(tipoFiltro==="dia"){
+            return d.toDateString()===dataBase.toDateString();
+        }
+
+        if(tipoFiltro==="mes"){
+            return d.getMonth()===dataBase.getMonth() && d.getFullYear()===dataBase.getFullYear();
+        }
+
+        if(tipoFiltro==="ano"){
+            return d.getFullYear()===dataBase.getFullYear();
+        }
+    });
+
+    atualizarDashboard(filtrado);
+    gerarRanking(filtrado);
+}
+
+// =============================
+// DASHBOARD
+// =============================
+
+let graficoGeral;
+let graficoIndividual;
+
+function atualizarDashboard(dados=atendimentos){
+
+    const contagem = {};
+    dados.forEach(a=>{
+        contagem[a.colaborador]=(contagem[a.colaborador]||0)+1;
+    });
+
+    if(graficoGeral) graficoGeral.destroy();
+
+    graficoGeral = new Chart(document.getElementById("graficoGeral"),{
+        type:'bar',
+        data:{
+            labels:Object.keys(contagem),
+            datasets:[{
+                label:"Total de Atendimentos",
+                data:Object.values(contagem),
+                backgroundColor:"green"
+            }]
+        }
+    });
+
+    carregarFiltroColaborador(dados);
+}
+
+function carregarFiltroColaborador(dados){
+    const select = document.getElementById("filtroColaborador");
+    select.innerHTML="";
+    const nomes=[...new Set(dados.map(a=>a.colaborador))];
+    nomes.forEach(n=>{
+        const op=document.createElement("option");
+        op.value=n;
+        op.textContent=n;
+        select.appendChild(op);
+    });
+    atualizarIndividual();
+}
+
+function atualizarIndividual(){
+
+    const nome=document.getElementById("filtroColaborador").value;
+    const dados=atendimentos.filter(a=>a.colaborador===nome);
+
+    const contagem={};
+    dados.forEach(a=>{
+        contagem[a.tipo]=(contagem[a.tipo]||0)+1;
+    });
+
+    if(graficoIndividual) graficoIndividual.destroy();
+
+    graficoIndividual=new Chart(document.getElementById("graficoIndividual"),{
+        type:'pie',
+        data:{
+            labels:Object.keys(contagem),
+            datasets:[{
+                data:Object.values(contagem),
+                backgroundColor:["green","blue","orange","red"]
+            }]
+        }
+    });
+}
+
+// =============================
+// RANKING AUTOMÁTICO
+// =============================
+
+function gerarRanking(dados=atendimentos){
+
+    const contagem={};
+    dados.forEach(a=>{
+        contagem[a.colaborador]=(contagem[a.colaborador]||0)+1;
+    });
+
+    const ordenado=Object.entries(contagem)
+        .sort((a,b)=>b[1]-a[1]);
+
+    const lista=document.getElementById("ranking");
+    lista.innerHTML="";
+
+    ordenado.forEach((item,index)=>{
+        const li=document.createElement("li");
+        li.textContent=`${index+1}º - ${item[0]} (${item[1]} atendimentos)`;
+        lista.appendChild(li);
+    });
+}
+
+// =============================
+// EXPORTAÇÃO EXCEL
+// =============================
+
+function exportarExcel(){
+    const worksheet=XLSX.utils.json_to_sheet(atendimentos);
+    const workbook=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook,worksheet,"Atendimentos");
+    XLSX.writeFile(workbook,"Relatorio_ASSOPESCA.xlsx");
+}
+
+// =============================
+// ATUALIZAÇÃO GERAL
+// =============================
+
+function atualizarSistema(){
+    atualizarDashboard();
+    gerarRanking();
+}
+
+atualizarSistema();
+
+</script>
+
+</body>
+</html>
